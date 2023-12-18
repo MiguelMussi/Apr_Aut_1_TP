@@ -1,227 +1,319 @@
-# clases y funciones del pipeline de preprocesamiento.
+# ---------------------- LIBRERIAS -------------------------
+
+# Data
 import pandas as pd
 import numpy as np
-import os
-from keras.models import load_model
+from datetime import datetime
+
+# Preprocessing data
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+
+# Machine Learning Pipeline & process
+from sklearn.pipeline import Pipeline
 from sklearn.base import BaseEstimator, TransformerMixin
+import joblib
+import keras
+from keras.models import load_model
+# from tensorflow.keras.models import load_model
 
-# Lista de variables y sus tipos correspondientes
-vars = [
-    ('Date', 'date'),
-    ('Temp9am', 'float'),
-    ('Temp3pm', 'float'),
-    ('MinTemp', 'float'),
-    ('MaxTemp', 'float'),
-    ('Humidity9am', 'float'),
-    ('Humidity3pm', 'float'),
-    ('Pressure9am', 'float'),
-    ('Pressure3pm', 'float'),
-    ('Cloud9am', 'float'),
-    ('Cloud3pm', 'float'),
-    ('Evaporation', 'float'),
-    ('Sunshine', 'float'),
-    ('WindGustDir', 'coord'),
-    ('WindGustSpeed', 'float'),
-    ('WindDir9am', 'coord'),
-    ('WindSpeed9am', 'float'),
-    ('WindDir3pm', 'coord'),
-    ('WindSpeed3pm', 'float'),
-    ('RainToday', 'state'),
-    ('Rainfall', 'float')
-]
 
-def date_extraction(df):
-    """
-    Función que extrae el atributo "MES" de la fecha
-    y lo recategoriza de manera cíclica con seno y coseno
-    """
-    # Asegurar que 'date' es una columna de tipo datetime
-    df['Date'] = pd.to_datetime(df['Date'])
+# ---------------------- CLASES -------------------------
 
-    # Extrae el mes de la fecha
-    # data['Year'] = data['Date'].dt.year
-    df['Month'] = df['Date'].dt.month
-    # data['Day'] = data['Date'].dt.day
-
-    # Codifica el mes en month_sin y month_cos
-    df['Month_sin'] = np.sin(2 * np.pi * df['Month'] / 12).round(5)
-    df['Month_cos'] = np.cos(2 * np.pi * df['Month'] / 12).round(5)
-
-    # Elimina la columna 'month'
-    df = df.drop('Date', axis=1)
-
-    return df
-
-def coord_recat(df):
-    """
-    Función para recategorizar los valores seleccionados 
-    de la lista de coordenadas. 
-    """
-    # Mapeo de las coordenadas a grados
-    mapeo_coord = {
-        'E': 0, 'ENE': 22.5, 'NE': 45, 'NNE': 67.5,
-        'N': 90, 'NNW': 112.5, 'NW': 135, 'WNW': 157.5,
-        'W': 180, 'WSW': 202.5, 'SW': 225, 'SSW': 247.5,
-        'S': 270, 'SSE': 292.5, 'SE': 315, 'ESE': 337.5,
-        }
-    # Variables con direcciones de viento
-    df['WindGustDir'] = df['WindGustDir'].map(mapeo_coord)
-    df['WindDir9am'] = df['WindDir9am'].map(mapeo_coord)
-    df['WindDir3pm'] = df['WindDir3pm'].map(mapeo_coord)
-
-    # Conversión de grados a radianes
-    df['WindGustDir_rad'] = np.deg2rad(df['WindGustDir'])
-    df['WindDir9am_rad'] = np.deg2rad(df['WindDir9am'])
-    df['WindDir3pm_rad'] = np.deg2rad(df['WindDir3pm'])
-
-    # Codificación cíclica con senos y cosenos
-    df['WindGustDir_sin'] = np.sin(df['WindGustDir_rad']).round(5)
-    df['WindGustDir_cos'] = np.cos(df['WindGustDir_rad']).round(5)
-    df['WindDir9am_sin'] = np.sin(df['WindDir9am_rad']).round(5)
-    df['WindDir9am_cos'] = np.cos(df['WindDir9am_rad']).round(5)
-    df['WindDir3pm_sin'] = np.sin(df['WindDir3pm_rad']).round(5)
-    df['WindDir3pm_cos'] = np.cos(df['WindDir3pm_rad']).round(5)
-
-    # Eliminación de las columnas originales y las columnas en radianes
-    df = df.drop(['WindGustDir', 'WindDir9am', 'WindDir3pm', 'WindGustDir_rad', 'WindDir9am_rad', 'WindDir3pm_rad'], axis=1)
-    
-    return df
-
-def yesno_recat(df):
-    """
-    Función para recategorizar los valores seleccionados 
-    de la lista de estados de lluvia del dia actual. 
-    """
-    # Reemplazo de Yes/No
-    df['RainToday'] = df['RainToday'].map({'No': 0, 'Yes': 1})
-    df['RainToday'] = df['RainToday'].astype(int)
-
-    return df
-  
-def standard_scaler_function(df):
-    """
-    Función para normalizar los datos según Z-score. 
-    """
-    scaler = StandardScaler()
-    df_scaled = pd.DataFrame(scaler.fit_transform(df), columns=df.columns)
-    return df_scaled
-
-def clf_model(df):
-    """
-    Función para implementar la Red Neuronal de clasificación. 
-    """
-    # Carga de modelo
-    clf_model = load_model('nn_cls_model.h5')
-
-    # Predecir
-    clf_pred = clf_model.predict(df)
-    return clf_pred
-
-def reg_model(df):
-    """
-    Función para implementar la Red Neuronal de regresión. 
-    """
-    # Carga de modelo
-    reg_model = load_model('nn_reg_model.h5')
-
-    # Predecir
-    reg_pred = reg_model.predict(df)
-    return reg_pred
-  
 class DateExtraction(BaseEstimator, TransformerMixin):
+    """
+    Extrae el atributo "MES" de la fecha
+    y lo recategoriza de manera circular con seno y coseno
+    """
     def fit(self, X, y=None):
         return self
 
     def transform(self, X):
-        return date_extraction(X)
-    
+        # Asegurar que X es un DataFrame
+        if not isinstance(X, pd.DataFrame):
+            X = pd.DataFrame(X, columns=['Date'])
+
+        # Convertir la columna 'Date' a datetime
+        X['Date'] = pd.to_datetime(X['Date'])
+
+        # Extraer el mes y calcular las funciones sin y cos
+        X['Month_sin'] = np.sin(2 * np.pi * X['Date'].dt.month / 12).round(5)
+        X['Month_cos'] = np.cos(2 * np.pi * X['Date'].dt.month / 12).round(5)
+
+        # Eliminar la columna original 'Date'
+        X = X.drop(['Date'], axis=1)
+
+        # Devolver un array de NumPy X.values
+        return X
+
+
 class CoordRecat(BaseEstimator, TransformerMixin):
+    """
+    Recategoriza los valores de la lista de coordenadas. 
+    Primero a grados sexagesimales, a radianes y luego
+    de manera circular con seno y coseno
+    """
     def fit(self, X, y=None):
         return self
 
     def transform(self, X):
-        return coord_recat(X)
+        mapeo_coord = {
+            'E': 0, 'ENE': 22.5, 'NE': 45, 'NNE': 67.5,
+            'N': 90, 'NNW': 112.5, 'NW': 135, 'WNW': 157.5,
+            'W': 180, 'WSW': 202.5, 'SW': 225, 'SSW': 247.5,
+            'S': 270, 'SSE': 292.5, 'SE': 315, 'ESE': 337.5,
+        }
+
+        # Aplicar la recategorización
+        for col in ['WindGustDir', 'WindDir9am', 'WindDir3pm']:
+            X[col] = X[col].map(mapeo_coord)
+            X[f'{col}_rad'] = np.deg2rad(X[col])
+            X[f'{col}_sin'] = np.sin(X[f'{col}_rad']).round(5)
+            X[f'{col}_cos'] = np.cos(X[f'{col}_rad']).round(5)
+
+        # Eliminar columnas originales y columnas radianes
+        columns_to_drop = [f'{col}_rad' for col in ['WindGustDir', 'WindDir9am', 'WindDir3pm']] + ['WindGustDir', 'WindDir9am', 'WindDir3pm']
+        X = X.drop(columns=columns_to_drop, axis=1)
+
+        return X
+
 
 class YesNoRecat(BaseEstimator, TransformerMixin):
+    """
+    Recategoriza los valores seleccionados 
+    de la lista de estados de lluvia del dia actual. 
+    """
     def fit(self, X, y=None):
         return self
 
     def transform(self, X):
-        return yesno_recat(X)
+        # Mapear 'No' a 0 y 'Yes' a 1
+        X['RainToday'] = X['RainToday'].map({'No': 0, 'Yes': 1}).astype(float)
+        return X
 
-class StandardScalerTransformer(BaseEstimator, TransformerMixin):
-    def __init__(self):
-        pass
+# class ManualStandardScaler(BaseEstimator, TransformerMixin):
+#     """
+#     Normaliza los datos según Z-score con el scaler generado en train (desarrollo).
+#     Se realiza de manera manual con los atributos del scaler.
+#     """
+#     def __init__(self, scaler_path='scaler_model_25.pkl'):
+#         self.scaler_path = scaler_path
+#         self.mean_ = None
+#         self.scale_ = None
+
+#     def fit(self, X, y=None):
+#         # Cargar el scaler previamente ajustado
+#         scaler = joblib.load(self.scaler_path)
+#         self.mean_ = pd.Series(scaler.mean_, index=self.get_column_names(X))
+#         self.scale_ = pd.Series(scaler.scale_, index=self.get_column_names(X))
+#         return self
+
+#     def transform(self, X):
+#         # Convertir a DataFrame si es un array de NumPy
+#         if isinstance(X, np.ndarray):
+#             X = pd.DataFrame(X, columns=self.get_column_names(X))
+
+#         # Asegurar que todas las columnas a escalar estén presentes en X
+#         if not set(X.columns).issubset(set(self.mean_.index)):
+#             raise ValueError("Columns to scale not found in input DataFrame.")
+
+#         # Seleccionar solo las columnas numéricas
+#         numeric_columns = X.select_dtypes(include=['float64', 'int64']).columns
+
+#         # Calcular la normalización manualmente solo para columnas numéricas
+#         X_scaled_numeric = (X[numeric_columns] - self.mean_[numeric_columns]) / self.scale_[numeric_columns]
+
+#         # Mantener las columnas no numéricas sin cambios
+#         X_scaled = pd.concat([X_scaled_numeric, X.drop(columns=numeric_columns)], axis=1)
+
+#         return X_scaled
+
+#     def get_column_names(self, X):
+#         # Obtener los nombres de las columnas, ya sea desde un DataFrame o un array de NumPy
+#         if isinstance(X, pd.DataFrame):
+#             return X.columns
+#         elif isinstance(X, np.ndarray):
+#             return np.arange(X.shape[1])
+#         else:
+#             raise ValueError("Unsupported input type. Use DataFrame or NumPy array.")
+
+
+class ManualStandardScaler(BaseEstimator, TransformerMixin):
+    """
+    Normaliza los datos según Z-score con el scaler generado en train (desarrollo).
+    Se realiza de manera manual con los atributos del scaler.
+    """
+    def __init__(self, scaler_path='scaler_model_25.pkl'):
+        self.scaler_path = scaler_path
+        self.mean_ = None
+        self.scale_ = None
+        self.exclude_columns = ['RainToday']
 
     def fit(self, X, y=None):
+        # Cargar el scaler previamente ajustado
+        scaler = joblib.load(self.scaler_path)
+        # Excluir las columnas especificadas del ajuste del scaler
+        columns_to_scale = [col for col in X.columns if col not in self.exclude_columns]
+        self.mean_ = scaler.mean_
+        self.scale_ = scaler.scale_
         return self
 
     def transform(self, X):
-        return standard_scaler_function(X)
+        # Excluir las columnas especificadas de la transformación
+        columns_to_scale = [col for col in X.columns if col not in self.exclude_columns]
 
-# class ClfModel(BaseEstimator, TransformerMixin):
-#     def __init__(self):
-#         self.model = load_model('nn_clf_model.h5')
+        # Asegurar que las columnas a escalar estén presentes en X
+        if not set(columns_to_scale).issubset(set(X.columns)):
+            raise ValueError("Columns to scale not found in input DataFrame.")
+
+        # Calcular la normalización manualmente
+        X_scaled = (X[columns_to_scale] - self.mean_) / self.scale_
+
+        # Mantener las columnas excluidas sin cambios
+        X_scaled[self.exclude_columns] = X[self.exclude_columns]
+
+        return X_scaled
+
+# class ManualStandardScaler(BaseEstimator, TransformerMixin):
+#     def __init__(self, scaler_path='no_date_scaler_model.pkl'):
+#         self.scaler_path = scaler_path
+#         self.mean_ = None
+#         self.scale_ = None
+#         self.exclude_columns = ['RainToday']
+
+#     def fit(self, X, y=None):
+#         # Cargar el scaler previamente ajustado
+#         scaler = joblib.load(self.scaler_path)
+#         # Excluir las columnas especificadas del ajuste del scaler
+#         columns_to_scale = [col for col in X.columns if col not in self.exclude_columns]
+#         self.mean_ = scaler.mean_
+#         self.scale_ = scaler.scale_
+#         return self
+
+#     def transform(self, X):
+#         # Excluir las columnas especificadas de la transformación
+#         columns_to_scale = [col for col in X.columns if col not in self.exclude_columns]
+
+#         # Asegurar que las columnas a escalar estén presentes en X
+#         if not set(columns_to_scale).issubset(set(X.columns)):
+#             raise ValueError("Columns to scale not found in input DataFrame.")
+
+#         # Calcular la normalización manualmente
+#         X_scaled = (X[columns_to_scale] - self.mean_) / self.scale_
+
+#         # Mantener las columnas excluidas sin cambios
+#         X_scaled[self.exclude_columns] = X[self.exclude_columns]
+
+#         return X_scaled
+
+# class ClassifierModel(BaseEstimator, TransformerMixin):
+#     """
+#     Implementa la Red Neuronal de clasificación. 
+#     """
+#     def __init__(self, model_path='nn_clf_model.h5'):
+#         self.model_path = model_path
+#         self.model = None
 
 #     def fit(self, X, y=None):
 #         return self
 
 #     def transform(self, X):
-#         return self.model.predict(X)
-    
-#     def predict(self, X):
-#         return self.model.predict(X)
+#         if self.model is None:
+#             self.model = load_model(self.model_path)
 
-class ClfModel(BaseEstimator, TransformerMixin):
+#         # Realizar predicciones
+#         clf_pred = self.model.predict(X)
+#         return clf_pred
+
+#     def predict(self, X):
+#         return self.transform(X)
+    
+class ClassifierModel(BaseEstimator, TransformerMixin):
+    """
+    Implementa la Red Neuronal de clasificación. 
+    """
     def __init__(self, model_path='nn_clf_model.h5'):
-        self.model_path = os.path.join(os.path.dirname(__file__), model_path)
+        self.model_path = model_path
         self.model = None
 
     def fit(self, X, y=None):
         return self
 
     def transform(self, X):
-        try:
-            if self.model is None:
-                self.model = load_model(self.model_path)
-            return self.model.predict(X)
-        except Exception as e:
-            print(f"Error al cargar el modelo de clasificación: {e}")
-            return None
-    
+        if self.model is None:
+            self.model = load_model(self.model_path)
+
+        # Realizar predicciones
+        clf_pred = self.model.predict(X)
+        return clf_pred
+
     def predict(self, X):
         return self.transform(X)
 
-# class RegModel(BaseEstimator, TransformerMixin):
-#     def __init__(self):
-#         self.model = load_model('nn_reg_model.h5')
 
-#     def fit(self, X, y=None):
-#         return self
-
-#     def transform(self, X):
-#         return self.model.predict(X)
-    
-#     def predict(self, X):
-#         return self.model.predict(X)
-
-class RegModel(BaseEstimator, TransformerMixin):
+class RegressorModel(BaseEstimator, TransformerMixin):
+    """
+    Implementa la Red Neuronal de regresión. 
+    """
     def __init__(self, model_path='nn_reg_model.h5'):
-        self.model_path = os.path.join(os.path.dirname(__file__), model_path)
+        self.model_path = model_path
         self.model = None
 
     def fit(self, X, y=None):
         return self
 
     def transform(self, X):
-        try:
-            if self.model is None:
-                self.model = load_model(self.model_path)
-            return self.model.predict(X)
-        except Exception as e:
-            print(f"Error al cargar el modelo de clasificación: {e}")
-            return None
-    
+        if self.model is None:
+            self.model = load_model(self.model_path)
+
+        # Realizar predicciones
+        clf_pred = self.model.predict(X)
+        return clf_pred
+
     def predict(self, X):
         return self.transform(X)
+
+
+# ------------------- PIPELINES ----------------------
+pipe_clf = Pipeline([
+    ('date_extraction', DateExtraction()),
+    ('coord_recat', CoordRecat()),
+    ('yesno_recat', YesNoRecat()),
+    ('manual_standard_scaler', ManualStandardScaler(scaler_path='scaler_model.pkl')),
+    ('classifier_model', ClassifierModel(model_path='nn_clf_model.h5')),
+])
+
+pipe_reg = Pipeline([
+    ('date_extraction', DateExtraction()),
+    ('coord_recat', CoordRecat()),
+    ('yesno_recat', YesNoRecat()),
+    ('manual_standard_scaler', ManualStandardScaler(scaler_path='scaler_model.pkl')),
+    ('regressor_model', RegressorModel(model_path='nn_reg_model.h5')),
+])
+
+
+# --------------- TEST -----------------------
+# Definir los datos de entrada para testear
+data = {
+    'Date': ['2023-05-17'],
+    'MinTemp': [15.00],
+    'MaxTemp': [28.00],
+    'Rainfall': [188.00],
+    'Evaporation': [2.20],
+    'Sunshine': [0.00],
+    'WindGustSpeed': [150.00],
+    'WindSpeed9am': [220.00],
+    'WindSpeed3pm': [200.00],
+    'Humidity9am': [68.00],
+    'Humidity3pm': [90.00],
+    'Pressure9am': [1014.00],
+    'Pressure3pm': [1011.00],
+    'Cloud9am': [8.00],
+    'Cloud3pm': [8.00],
+    'Temp9am': [15.00],
+    'Temp3pm': [21.00],
+    'WindGustDir': ['E'],
+    'WindDir9am': ['NNE'],
+    'WindDir3pm': ['E'],
+    'RainToday': ['Yes']
+    }
